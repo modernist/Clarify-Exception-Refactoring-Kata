@@ -7,26 +7,32 @@ namespace codingdojo
         public ErrorResult EnrichError(SpreadsheetWorkbook spreadsheetWorkbook, Exception e)
         {
             var formulaName = spreadsheetWorkbook.GetFormulaName();
+            string error = null;
 
             if (e.GetType() == typeof(ExpressionParseException))
             {
-                var error = "Invalid expression found in tax formula [" + formulaName +
+                error = "Invalid expression found in tax formula [" + formulaName +
                             "]. Check that separators and delimiters use the English locale.";
-                return new ErrorResult(formulaName, error, spreadsheetWorkbook.GetPresentation());
             }
 
             if (e.Message.StartsWith("Circular Reference"))
             {
-                var error = parseCircularReferenceException(e, formulaName);
-                return new ErrorResult(formulaName, error, spreadsheetWorkbook.GetPresentation());
+                error = parseCircularReferenceException(e, formulaName);
             }
 
             if ("Object reference not set to an instance of an object".Equals(e.Message)
                 && StackTraceContains(e, "VLookup"))
-                return new ErrorResult(formulaName, "Missing Lookup Table", spreadsheetWorkbook.GetPresentation());
+            {
+                error = "Missing Lookup Table";
+            }
+
             if ("No matches found".Equals(e.Message))
             {
-                var error = parseNoMatchException(e, formulaName);
+                error = parseNoMatchException(e, formulaName);
+            }
+
+            if (error != null)
+            {
                 return new ErrorResult(formulaName, error, spreadsheetWorkbook.GetPresentation());
             }
 
