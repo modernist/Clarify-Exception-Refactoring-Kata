@@ -1,75 +1,43 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace codingdojo
 {
     public class MessageEnricher
     {
+        private static readonly List<(Predicate<Exception> Validate, Func<string, Exception, string> MessageFactory)> Validators;
+
+        static MessageEnricher()
+        {
+            Validators = new List<(Predicate<Exception> Validator, Func<string, Exception, string> MessageFactory)>() {
+                ((e) => e.Message.Equals("Object reference not set to an instance of an object") && e.StackTrace.Contains("VLookup"),
+                (formulaName, e) => "Missing Lookup Table" ),
+
+                ((e) => e.Message.Equals("Missing Formula") && e.GetType() == typeof(SpreadsheetException),
+                (formulaName, e) => $"Invalid expression found in tax formula [{formulaName}]. Check for merged cells near {((SpreadsheetException)e).Cells}"),
+
+                ((e) => e.Message.Equals("No matches found") && e.GetType() == typeof(SpreadsheetException),
+                (formulaName, e) => $"No match found for token [{((SpreadsheetException)e).Token}] related to formula '{formulaName}'."),
+
+                ((e) => e.GetType() == typeof(ExpressionParseException),
+                (formulaName, e) => $"Invalid expression found in tax formula [{formulaName}]. Check that separators and delimiters use the English locale."),
+
+                ((e) => e.Message.StartsWith("Circular Reference") && e.GetType() == typeof(SpreadsheetException),
+                (formulaName, e) => $"Circular Reference in spreadsheet related to formula '{formulaName}'. Cells: {((SpreadsheetException)e).Cells}"),
+
+                ((e) => true,
+                (formulaName, e) => e.Message)
+            };
+        }
+
         public ErrorResult EnrichError(SpreadsheetWorkbook spreadsheetWorkbook, Exception e)
         {
             var formulaName = spreadsheetWorkbook.GetFormulaName();
-            string error = null;
 
-            if (e.GetType() == typeof(ExpressionParseException))
-            {
-                error = "Invalid expression found in tax formula [" + formulaName +
-                            "]. Check that separators and delimiters use the English locale.";
-            }
+            var error = Validators.First(ev => ev.Validate(e)).MessageFactory(formulaName, e);
 
-            if (e.Message.StartsWith("Circular Reference"))
-            {
-                error = parseCircularReferenceException(e, formulaName);
-            }
-
-            if ("Object reference not set to an instance of an object".Equals(e.Message)
-                && StackTraceContains(e, "VLookup"))
-            {
-                error = "Missing Lookup Table";
-            }
-
-            if ("No matches found".Equals(e.Message))
-            {
-                error = parseNoMatchException(e, formulaName);
-            }
-
-            if (error != null)
-            {
-                return new ErrorResult(formulaName, error, spreadsheetWorkbook.GetPresentation());
-            }
-
-            return new ErrorResult(formulaName, e.Message, spreadsheetWorkbook.GetPresentation());
-        }
-
-        private bool StackTraceContains(Exception e, string message)
-        {
-            foreach (var ste in e.StackTrace.Split('\n'))
-            {
-                if (ste.Contains(message))
-                    return true;
-            }
-            return false;
-        }
-
-        private string parseNoMatchException(Exception e, string formulaName)
-        {
-            if (e.GetType() == typeof(SpreadsheetException))
-            {
-                var we = (SpreadsheetException) e;
-                return "No match found for token [" + we.Token+ "] related to formula '" + formulaName + "'.";
-            }
-
-            return e.Message;
-        }
-
-        private string parseCircularReferenceException(Exception e, string formulaName)
-        {
-            if (e.GetType() == typeof(SpreadsheetException))
-            {
-                var we = (SpreadsheetException) e;
-                return "Circular Reference in spreadsheet related to formula '" + formulaName + "'. Cells: " +
-                       we.Cells;
-            }
-
-            return e.Message;
+            return new ErrorResult(formulaName, error, spreadsheetWorkbook.GetPresentation());
         }
     }
 }
